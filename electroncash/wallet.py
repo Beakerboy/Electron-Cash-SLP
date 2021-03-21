@@ -46,7 +46,7 @@ from typing import Set, Tuple, Union
 from .i18n import ngettext
 from .util import (NotEnoughFunds, NotEnoughFundsSlp, NotEnoughUnfrozenFundsSlp, ExcessiveFee, PrintError,
                    UserCancelled, profiler, format_satoshis, format_time, finalization_print_error, to_string,
-                   is_verbose)
+                   TimeoutException, is_verbose)
 
 from .address import Address, Script, ScriptOutput, PublicKey, OpCodes
 from .bitcoin import *
@@ -1193,7 +1193,7 @@ class Abstract_Wallet(PrintError, SPVDelegate):
             tx_height, value, is_cb = v
             prevout_hash, prevout_n = txo.split(':')
             with self.lock:
-                val = self.tx_tokinfo[prevout_hash]['validity']
+                tok_info = self.tx_tokinfo[prevout_hash]
             x = {
                 'address': address,
                 'value': value,
@@ -1203,7 +1203,9 @@ class Abstract_Wallet(PrintError, SPVDelegate):
                 'coinbase': is_cb,
                 'is_frozen_coin': txo in self.frozen_coins or txo in self.frozen_coins_tmp,
                 'token_value': addrdict[prevout_hash][int(prevout_n)]['qty'],
-                'token_validation_state': val
+                'token_id_hex': tok_info['token_id'],
+                'token_type': tok_info['type'],
+                'token_validation_state': tok_info['validity']
             }
             out[txo] = x
         return out
@@ -2713,7 +2715,11 @@ class Abstract_Wallet(PrintError, SPVDelegate):
             # a network call and it will eventually exit.
             t.join(timeout=3.0)
 
-    def wait_until_synchronized(self, callback=None):
+    def wait_until_synchronized(self, callback=None, *, timeout=None):
+        tstart = time.time()
+        def check_timed_out():
+            if timeout is not None and time.time() - tstart > timeout:
+                raise TimeoutException()
         def wait_for_wallet():
             self.set_up_to_date(False)
             while not self.is_up_to_date():
@@ -2724,12 +2730,14 @@ class Abstract_Wallet(PrintError, SPVDelegate):
                         len(self.addresses(True)))
                     callback(msg)
                 time.sleep(0.1)
+                check_timed_out()
         def wait_for_network():
             while not self.network.is_connected():
                 if callback:
                     msg = "%s \n" % (_("Connecting..."))
                     callback(msg)
                 time.sleep(0.1)
+                check_timed_out()
         # wait until we are connected, because the user
         # might have selected another server
         if self.network:

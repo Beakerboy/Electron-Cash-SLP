@@ -118,9 +118,6 @@ class _GraphSearchJob:
         if not wallet:
             return []
 
-        if self.valjob.graph.validator.token_type == 129:
-            return []
-
         wallet_val = self.valjob.validitycache
         token_id = self.valjob.graph.validator.token_id_hex
         gs_cache = []
@@ -361,11 +358,13 @@ class _SlpGraphSearchManager:
         try:
             dat = json.loads(dat.decode('utf-8'))
             txns = dat[res_txns_key]
-        except:
-            m = json.loads(dat)
-            if m["error"]:
-                raise Exception(m["error"])
-            raise Exception(m)
+        except json.decoder.JSONDecodeError:
+            msg = '=> %s'%dat.decode('utf-8')
+            if len(dat.decode('utf-8')) > 100:
+                msg = 'message is too long'
+            raise Exception('server returned invalid json (%s)'%msg)
+        except KeyError:
+            raise Exception(dat)
 
         for txn in txns:
             job.txn_count_progress += 1

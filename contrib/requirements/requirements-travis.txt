@@ -1,3 +1,4 @@
 tox
 coveralls
 tox-travis
+docstr_coverage
